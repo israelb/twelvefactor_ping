@@ -1,26 +1,39 @@
-package twelvefactor_ping
+package ping
 
 import (
-	"os"
-	"log"
-	"fmt"
-	"time"
 	"context"
-	"strconv"
-	"net/http"
+	"fmt"
 	"github.com/b3ntly/twelvefactor_ping/ping"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"time"
 )
 
 var (
-	// make important variables noticeable immediately
+	// BACKGROUND_CTX makex important variables noticeable immediately
 	BACKGROUND_CTX = context.Background()
+	// DEFAULT_LOGGER replaces this with something like Logrus or Zap in production
 	DEFAULT_LOGGER = log.New(os.Stdout, "", log.Lshortfile)
+	// DEFAULT_MUX, replace with gorilla etc. if desired
+	DEFAULT_MUX = http.NewServeMux()
 
 	// read configuration from our environment with default values
 	// ...expose as much configuration as possible to your users/ops team
+	// PORT to serve the application on
 	PORT = getEnv("PORT", "9090")
+	// the path from which to reply
+	// PATH to return a response from
+	ENDPOINT = getEnv("ENDPOINT", "/ping")
+	// DEFAULT_RESPONSE to send
 	DEFAULT_RESPONSE = getEnv("DEFAULT_RESPONSE", "PONG")
-	DEFAULT_TIMEOUT = time.Duration(getEnvInt("DEFAULT_TIMEOUT", 500)) * time.Millisecond
+	// REQ_TIMEOUT timeout for http handler
+	REQ_TIMEOUT = time.Duration(getEnvInt("REQ_TIMEOUT", 500)) * time.Millisecond
+	// SERVER_READ_TIMEOUT timeout for the server, REQ_TIMEOUT should occur before a server timeout in most circumstances
+	SERVER_READ_TIMEOUT = time.Duration(getEnvInt("SERVER_READ_TIMEOUT", 1000)) * time.Millisecond
+	// SERVER_WRITE_TIMEOUT timeout for the server, REQ_TIMEOUT should occur before a server timeout
+	SERVER_WRITE_TIMEOUT = time.Duration(getEnvInt("SERVER_WRITE_TIMEOUT", 2000)) * time.Millisecond
 )
 
 func getEnv(key string, _default string) string {
@@ -36,7 +49,7 @@ func getEnvInt(key string, _default int) int {
 		ival, err := strconv.Atoi(val)
 
 		if err != nil {
-			log.Fatal(err)
+			DEFAULT_LOGGER.Fatal(err)
 		}
 
 		return ival
@@ -49,33 +62,43 @@ func getEnvInt(key string, _default int) int {
 // indicating timeout.
 func injectContextWithTimeout(ctx context.Context, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctxWithTimeout, _ := context.WithTimeout(ctx, DEFAULT_TIMEOUT)
+		ctxWithTimeout, cancel := context.WithTimeout(ctx, REQ_TIMEOUT)
+
+		// defer can to prevent context leaking
+		defer cancel()
+
 		next.ServeHTTP(w, r.WithContext(ctxWithTimeout))
 	})
 }
 
 // break individual initialization steps into small sequential pieces
-func buildServer(ctx context.Context, handler func(w http.ResponseWriter, r *http.Request)) *http.Server {
+func buildServer(ctx context.Context, mux http.Handler) *http.Server {
 	return &http.Server{
 		// Defaults to no timeouts, which is really bad
 		// See: https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/
 		// And: https://blog.cloudflare.com/exposing-go-on-the-internet/
-		ReadTimeout: 1 * time.Second,
-		WriteTimeout: 2 * time.Second,
-
-		Addr:    fmt.Sprintf(":%s", PORT),
-		// Wrap the http handler in a middleware
-		Handler: injectContextWithTimeout(ctx, http.HandlerFunc(handler)),
+		ReadTimeout:  SERVER_READ_TIMEOUT,
+		WriteTimeout: SERVER_WRITE_TIMEOUT,
+		Addr:         fmt.Sprintf(":%s", PORT),
+		Handler:      mux,
 	}
 }
 
-// fail hard on any initialization errors
-func listen(ctx context.Context, s *http.Server){
-	log.Fatal(s.ListenAndServe())
+// fail hard on any initialization errors, include context per convention
+func listen(ctx context.Context, s *http.Server) {
+	DEFAULT_LOGGER.Fatal(s.ListenAndServe())
 }
 
-func main(){
+func main() {
+	// instantiate the service
 	service := ping.New(DEFAULT_RESPONSE, DEFAULT_LOGGER)
-	server := buildServer(BACKGROUND_CTX, service.Endpoint)
+
+	// build the router with desired middleware
+	DEFAULT_MUX.Handle(ENDPOINT, injectContextWithTimeout(BACKGROUND_CTX, http.HandlerFunc(service.Endpoint)))
+
+	// instantiate the http.Server with our router
+	server := buildServer(BACKGROUND_CTX, DEFAULT_MUX)
+
+	// start the server
 	listen(BACKGROUND_CTX, server)
 }

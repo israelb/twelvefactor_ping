@@ -6,18 +6,19 @@ import (
 	"net/http"
 )
 
+// Service contains an HTTP endpoint for ping/pong functionality
 type Service struct {
 	PingResponse string
 	Logger       *log.Logger
 }
 
-// inject dependencies via an explicit constructor. Though sometimes people will read environmental variables or
+// New: inject dependencies via an explicit constructor. Though sometimes people will read environmental variables or
 // initialize defaults here I prefer to do so explicitly within the program entry-point.
 func New(pingResponse string, logger *log.Logger) *Service {
 	return &Service{PingResponse: pingResponse, Logger: logger}
 }
 
-// Alternatively you can return a mux or sub-router from this subpackage
+// Endpoint, Alternatively you could return a mux or sub-router from this subpackage
 func (s *Service) Endpoint(w http.ResponseWriter, r *http.Request) {
 	response, err := json.Marshal(s.PingResponse)
 
