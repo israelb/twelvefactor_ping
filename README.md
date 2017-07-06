@@ -20,4 +20,8 @@ These are configuration variables that can be passed to the docker container.
 | Key | Description | Default |
 | ------------- |:-------------:| -----:|
 | PORT | The port on 127.0.0.1 from which this application will serve. | 9090 |
+| ENDPOINT | The URL path at which to serve responses | /ping |
 | RESPONSE | The string response returned by a GET request to /ping | PONG |
+| REQ_TIMEOUT | Request Timeout in Milliseconds | 500 |
+| SERVER_READ_TIMEOUT | Server Read Timeout | 1000 |
+| SERVER_WRITE_TIMEOUT | Server Write Timeout | 2000 |
